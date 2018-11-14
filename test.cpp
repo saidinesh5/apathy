@@ -286,4 +286,26 @@ TEST_CASE("path", "Path functionality works as advertised") {
         REQUIRE(Path::rmdirs("foo"));
         REQUIRE(!Path("foo").exists());
     }
+
+    SECTION("recursive_listdir", "Make sure we can recursively list directory") {
+        /* We'll touch a bunch of files to work with */
+        Path::makedirs("foo");
+        Path::makedirs("foo/bar");
+        Path::makedirs("foo/bar2");
+        Path::makedirs("foo/bar2/bar3");
+        Path::touch("foo/1");
+        Path::touch("foo/2");
+        Path::touch("foo/bar/1");
+        Path::touch("foo/bar/2");
+        Path::touch("foo/bar2/1");
+        Path::touch("foo/bar2/2");
+
+        /* Make sure we can get it to work in a few basic ways */
+        REQUIRE(Path::recursive_listdir("foo").size() == 9);
+
+
+        /* Now, we should remove the directories, make sure it's gone. */
+        REQUIRE(Path::rmdirs("foo"));
+        REQUIRE(!Path("foo").exists());
+    }
 }

@@ -289,6 +289,11 @@ namespace apathy {
          * @param pattern - the glob pattern to match */
         static std::vector<Path> glob(const std::string& pattern);
 
+        /* Returns all the files contained in the directory and it's subdirectories
+         *
+         * @param p - path to start searching */
+        static std::vector<Path> recursive_listdir(const Path &p);
+
         /* So that we can write paths out to ostreams */
         friend std::ostream& operator<<(std::ostream& stream, const Path& p) {
             return stream << p.path;
@@ -727,6 +732,31 @@ namespace apathy {
         for (std::size_t i = 0; i < globbuf.gl_pathc; ++i) {
             results.push_back(globbuf.gl_pathv[i]);
         }
+        return results;
+    }
+
+    inline std::vector<Path> Path::recursive_listdir(const Path &p) {
+        std::vector<Path> results;
+        std::vector<Path> directories_to_visit = {p};
+
+        while (!directories_to_visit.empty())
+        {
+            Path current_dir = directories_to_visit.back();
+            directories_to_visit.pop_back();
+
+            std::vector<Path> items = listdir(current_dir);
+
+            for (const auto &item : items)
+            {
+                results.push_back(item);
+
+                if (item.is_directory())
+                {
+                    directories_to_visit.push_back(item);
+                }
+            }
+        }
+
         return results;
     }
 }
