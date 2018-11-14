@@ -9,7 +9,7 @@ driver: driver.cpp path.hpp
 	$(CPP) $(COPPOPTS) -o driver driver.cpp
 
 test: test.cpp path.hpp
-	$(CPP) $(CPPOPTS) -o test test.cpp -isystem Catch/single_include
+	$(CPP) $(CPPOPTS) -o test test.cpp -isystem Catch/single_include/catch2
 	./test
 
 clean:

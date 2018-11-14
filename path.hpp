@@ -88,10 +88,10 @@ namespace apathy {
          * Operators
          *********************************************************************/
         /* Checks if the paths are exactly the same */
-        bool operator==(const Path& other) { return path == other.path; }
+        bool operator==(const Path& other) const { return path == other.path; }
 
         /* Check if the paths are not exactly the same */
-        bool operator!=(const Path& other) { return ! (*this == other); }
+        bool operator!=(const Path& other) const { return ! (*this == other); }
 
         /* Append the provided segment to the path as a directory. This is the
          * same as append(segment)
