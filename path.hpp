@@ -35,7 +35,9 @@
 #include <iterator>
 
 /* C includes */
+#if !defined(_WIN32)
 #include <glob.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -45,6 +47,17 @@
 
 /* A class for path manipulation */
 namespace apathy {
+
+    int makedir(const char *path, mode_t mode)
+    {
+#if defined(_WIN32)
+        (void)(mode);
+        return mkdir(path);
+#else
+        return mkdir(path, mode);
+#endif
+    }
+
     class Path {
     public:
         /* This is the separator used on this particular system */
@@ -630,7 +643,7 @@ namespace apathy {
         Path abs = Path(p).absolute();
 
         /* Now, we'll try to make the directory / ensure it exists */
-        if (mkdir(abs.string().c_str(), mode) == 0) {
+        if (makedir(abs.string().c_str(), mode) == 0) {
             return true;
         }
 
@@ -643,7 +656,7 @@ namespace apathy {
              * don't need to worry about reaching the '/' path, and then
              * getting to this point, because / always exists */
             makedirs(abs.parent(), mode);
-            if (mkdir(abs.string().c_str(), mode) == 0) {
+            if (makedir(abs.string().c_str(), mode) == 0) {
                 return true;
             } else {
                 perror("makedirs");
@@ -720,6 +733,7 @@ namespace apathy {
         return results;
     }
 
+#if !defined(_WIN32)
     inline std::vector<Path> Path::glob(const std::string& pattern) {
         /* First, we need a glob_t, and then we'll look at the results */
         glob_t globbuf;
@@ -734,6 +748,7 @@ namespace apathy {
         }
         return results;
     }
+#endif
 
     inline std::vector<Path> Path::recursive_listdir(const Path &p) {
         std::vector<Path> results;

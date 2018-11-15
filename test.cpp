@@ -266,6 +266,7 @@ TEST_CASE("path", "Path functionality works as advertised") {
         a = a.stem(); REQUIRE(a == Path("foo"));
     }
 
+#if !defined(_WIN32)
     SECTION("glob", "Make sure glob works") {
         /* We'll touch a bunch of files to work with */
         Path::makedirs("foo");
@@ -286,6 +287,7 @@ TEST_CASE("path", "Path functionality works as advertised") {
         REQUIRE(Path::rmdirs("foo"));
         REQUIRE(!Path("foo").exists());
     }
+#endif
 
     SECTION("recursive_listdir", "Make sure we can recursively list directory") {
         /* We'll touch a bunch of files to work with */
