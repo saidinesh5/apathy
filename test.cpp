@@ -23,6 +23,8 @@
 
 
 #define CATCH_CONFIG_MAIN
+#define CATCH_CONFIG_FAST_COMPILE
+#define CATCH_CONFIG_DISABLE_MATCHERS
 
 #include <catch.hpp>
 #include <algorithm>
@@ -53,6 +55,77 @@ TEST_CASE("path", "Path functionality works as advertised") {
         REQUIRE(cwd == empty);
     }
 
+#if defined(_WIN32)
+
+    SECTION("Path", "Make sure constructors work properly on windows")
+    {
+        /*On windows, we actually even replace the separator from "/" to "\" */
+        REQUIRE((Path("foo/bar") + "baz").string() == "foo\\bar\\baz");
+        REQUIRE((Path("C://foo/bar") + "baz").string() == "C:\\\\foo\\bar\\baz");
+    }
+
+    SECTION("operator+=", "Make sure operator<< works correctly") {
+        Path root("C:");
+        root << "hello" << "how" << "are" << "you";
+        REQUIRE(root.string() == "C:\\hello\\how\\are\\you");
+
+        /* It also needs to be able to accept things like floats, ints, etc. */
+        root = Path("C:");
+        root << "hello" << 5 << "how" << 3.14 << "are";
+        REQUIRE(root.string() == "C:\\hello\\5\\how\\3.14\\are");
+    }
+
+    SECTION("operator+", "Make sure operator+ works correctly") {
+        REQUIRE((Path("foo/bar") + "baz").string() == "foo\\bar\\baz");
+    }
+
+    SECTION("trim", "Make sure trim actually strips off separators") {
+        REQUIRE(Path("C:\\hello\\how\\are\\you\\\\\\\\").trim().string() == "C:\\hello\\how\\are\\you");
+        REQUIRE(Path("C:\\hello\\how\\are\\\\you").trim().string() == "C:\\hello\\how\\are\\\\you");
+        REQUIRE(Path("C:\\hello\\how\\are\\you\\").trim().string() == "C:\\hello\\how\\are\\you");
+    }
+
+    SECTION("directory", "Make sure we can make paths into directories") {
+        REQUIRE(Path("C:\\hello\\how\\are\\you").directory().string() == "C:\\hello\\how\\are\\you\\");
+        REQUIRE(Path("C:\\hello\\how\\are\\you\\").directory().string() == "C:\\hello\\how\\are\\you\\");
+        REQUIRE(Path("C:\\hello\\how\\are\\you\\\\").directory().string() == "C:\\hello\\how\\are\\you\\");
+    }
+
+    SECTION("relative", "Evaluates relative urls correctly") {
+        REQUIRE(Path("C:\\hello\\how\\are\\you").relative(Path("foo")).string() == "C:\\hello\\how\\are\\you\\foo");
+        REQUIRE(Path("C:\\hello\\how\\are\\you").relative(Path("D:\\fine\\thank\\you")).string() == "D:\\fine\\thank\\you");
+    }
+
+
+    SECTION("parent", "Make sure we can find the parent directory") {
+        REQUIRE(Path("C:\\hello\\how\\are\\you").parent().string() == "C:\\hello\\how\\are\\");
+        REQUIRE(Path("C:\\hello\\how\\are\\you").parent().parent().string() == "C:\\hello\\how\\");
+        REQUIRE(Path("C:\\").parent().string() == "C:\\");
+
+        REQUIRE(Path("").parent() != Path::cwd().parent());
+        REQUIRE(Path("").parent().equivalent(Path::cwd().parent()));
+
+        REQUIRE(Path("foo\\bar").parent().parent() == "");
+        REQUIRE(Path("foo/../bar/baz/a/../").parent() == "bar\\");
+    }
+
+    SECTION("sanitize", "Make sure we can sanitize a path") {
+        REQUIRE(Path("foo///bar/a/b/../c").sanitize().string() == "foo\\bar\\a\\c");
+        REQUIRE(Path("..\\foo///bar\\a/b/../c").sanitize().string() == "..\\foo\\bar\\a\\c");
+        REQUIRE(Path("../../a/b////c").sanitize().string() == "..\\..\\a\\b\\c");
+        REQUIRE(Path("C:/../../a/b////c").sanitize().string() == "C:\\a\\b\\c");
+        REQUIRE(Path("C:/./././a/./b/../../c").sanitize().string() == "C:\\c");
+        REQUIRE(Path("././a/b/c/").sanitize().string() == "a\\b\\c\\");
+    }
+
+    SECTION("equivalent", "Make sure equivalent paths work") {
+        REQUIRE(Path("foo////a/b/../c/").equivalent(Path("foo/a/c/")));
+        REQUIRE(Path("FOO////a/b/../c/").equivalent(Path("foo/a/c/")));
+        REQUIRE(Path("../foo/bar/").equivalent(Path::cwd().parent().append(Path("foo")).append(Path("bar")).directory()));
+    }
+
+#else
+
     SECTION("operator+=", "Make sure operator<< works correctly") {
         Path root("/");
         root << "hello" << "how" << "are" << "you";
@@ -65,60 +138,61 @@ TEST_CASE("path", "Path functionality works as advertised") {
     }
 
     SECTION("operator+", "Make sure operator+ works correctly") {
-        Path root("foo/bar");
-        REQUIRE((root + "baz").string() == "foo/bar/baz");
+        REQUIRE((Path("foo/bar") + "baz").string() == "foo/bar/baz");
     }
 
     SECTION("trim", "Make sure trim actually strips off separators") {
-        Path root("/hello/how/are/you////");
-        REQUIRE(root.trim().string() == "/hello/how/are/you");
-        root = Path("/hello/how/are/you");
-        REQUIRE(root.trim().string() == "/hello/how/are/you");
-        root = Path("/hello/how/are/you/");
-        REQUIRE(root.trim().string() == "/hello/how/are/you");
+        REQUIRE(Path("/hello/how/are/you////").trim().string() == "/hello/how/are/you");
+        REQUIRE(Path("/hello/how/are/you").trim().string() == "/hello/how/are/you");
+        REQUIRE(Path("/hello/how/are/you/").trim().string() == "/hello/how/are/you");
     }
 
     SECTION("directory", "Make sure we can make paths into directories") {
-        Path root("/hello/how/are/you");
-        REQUIRE(root.directory().string() == "/hello/how/are/you/");
-        root = Path("/hello/how/are/you/");
-        REQUIRE(root.directory().string() == "/hello/how/are/you/");
-        root = Path("/hello/how/are/you//");
-        REQUIRE(root.directory().string() == "/hello/how/are/you/");
+        REQUIRE(Path("/hello/how/are/you").directory().string() == "/hello/how/are/you/");
+        REQUIRE(Path("/hello/how/are/you/").directory().string() == "/hello/how/are/you/");
+        REQUIRE(Path("/hello/how/are/you//").directory().string() == "/hello/how/are/you/");
     }
 
     SECTION("relative", "Evaluates relative urls correctly") {
-        Path a("/hello/how/are/you");
-        Path b("foo");
-        REQUIRE(a.relative(b).string() == "/hello/how/are/you/foo");
-        a = Path("/hello/how/are/you/");
-        REQUIRE(a.relative(b).string() == "/hello/how/are/you/foo");
-        b = Path("/fine/thank/you");
-        REQUIRE(a.relative(b).string() == "/fine/thank/you");
+        REQUIRE(Path("/hello/how/are/you").relative(Path("foo")).string() == "/hello/how/are/you/foo");
+        REQUIRE(Path("/hello/how/are/you/").relative(Path("foo")).string() == "/hello/how/are/you/foo");
+        REQUIRE(Path("/hello/how/are/you").relative(Path("/fine/thank/you")).string() == "/fine/thank/you");
     }
 
     SECTION("parent", "Make sure we can find the parent directory") {
-        Path a("/hello/how/are/you");
-        REQUIRE(a.parent().string() == "/hello/how/are/");
-        a = Path("/hello/how/are/you");
-        REQUIRE(a.parent().parent().string() == "/hello/how/");
+        REQUIRE(Path("/hello/how/are/you").parent().string() == "/hello/how/are/");
+        REQUIRE(Path("/hello/how/are/you").parent().parent().string() == "/hello/how/");
         
         /* / is its own parent, at least according to bash:
          *
          *    cd / && cd ..
          */
-        a = Path("/");
-        REQUIRE(a.parent().string() == "/");
+        REQUIRE(Path("/").parent().string() == "/");
 
-        a = Path("");
-        REQUIRE(a.parent() != Path::cwd().parent());
-        REQUIRE(a.parent().equivalent(Path::cwd().parent()));
+        REQUIRE(Path("").parent() != Path::cwd().parent());
+        REQUIRE(Path("").parent().equivalent(Path::cwd().parent()));
 
-        a = Path("foo/bar");
-        REQUIRE(a.parent().parent() == "");
-        a = Path("foo/../bar/baz/a/../");
-        REQUIRE(a.parent() == "bar/");
+        REQUIRE(Path("foo/bar").parent().parent() == "");
+        REQUIRE(Path("foo/../bar/baz/a/../").parent() == "bar/");
     }
+
+    SECTION("sanitize", "Make sure we can sanitize a path") {
+        REQUIRE(Path("foo///bar/a/b/../c").sanitize() == "foo/bar/a/c");
+        REQUIRE(Path("../foo///bar/a/b/../c").sanitize() == "../foo/bar/a/c");
+        REQUIRE(Path("../../a/b////c").sanitize() == "../../a/b/c");
+
+        REQUIRE(Path("/../../a/b////c").sanitize() == "/a/b/c");
+        REQUIRE(Path("/./././a/./b/../../c").sanitize() == "/c");
+
+        REQUIRE(Path("././a/b/c/").sanitize() == "a/b/c/");
+    }
+
+    SECTION("equivalent", "Make sure equivalent paths work") {
+        REQUIRE(Path("foo////a/b/../c/").equivalent(Path("foo/a/c/")));
+        REQUIRE(Path("../foo/bar/").equivalent(Path::cwd().parent().append("foo").append("bar").directory()));
+    }
+
+#endif
 
     SECTION("makedirs", "Make sure we recursively make directories") {
         Path path("foo");
@@ -194,36 +268,6 @@ TEST_CASE("path", "Path functionality works as advertised") {
         REQUIRE(   dest.exists());
         Path::rmdirs("bar");
         REQUIRE(!Path("bar").exists());
-    }
-
-    SECTION("sanitize", "Make sure we can sanitize a path") {
-        Path path("foo///bar/a/b/../c");
-        REQUIRE(path.sanitize() == "foo/bar/a/c");
-
-        path = "../foo///bar/a/b/../c";
-        REQUIRE(path.sanitize() == "../foo/bar/a/c");
-
-        path = "../../a/b////c";
-        REQUIRE(path.sanitize() == "../../a/b/c");
-
-        path = "/../../a/b////c";
-        REQUIRE(path.sanitize() == "/a/b/c");
-
-        path = "/./././a/./b/../../c";
-        REQUIRE(path.sanitize() == "/c");
-
-        path = "././a/b/c/";
-        REQUIRE(path.sanitize() == "a/b/c/");
-    }
-
-    SECTION("equivalent", "Make sure equivalent paths work") {
-        Path a("foo////a/b/../c/");
-        Path b("foo/a/c/");
-        REQUIRE(a.equivalent(b));
-
-        a = "../foo/bar/";
-        b = Path::cwd().parent().append("foo").append("bar").directory();
-        REQUIRE(a.equivalent(b));
     }
 
     SECTION("split", "Make sure we can get segments out") {
@@ -307,7 +351,7 @@ TEST_CASE("path", "Path functionality works as advertised") {
 
 
         /* Now, we should remove the directories, make sure it's gone. */
-        REQUIRE(Path::rmdirs("foo"));
+        REQUIRE(Path::rmdirs(Path("foo")));
         REQUIRE(!Path("foo").exists());
     }
 }

@@ -25,6 +25,7 @@
 #define APATHY__PATH_HPP
 
 /* C++ includes */
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <cstring>
@@ -33,17 +34,34 @@
 #include <sstream>
 #include <iostream>
 #include <iterator>
+#include <cctype>
 
 /* C includes */
-#if !defined(_WIN32)
-#include <glob.h>
-#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
-#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+/* Arrgh Windows! */
+#if defined(_WIN32)
+    #include <windows.h>
+    #include <direct.h> /*For getcwd, chdir*/
+
+    #define mkdir _mkdir
+    #define getcwd _getcwd
+    #define chdir _chdir
+
+    /* read, write, and close are NOT being #defined here, because while there are file handle specific versions for Windows, they probably don't work for sockets. You need to look at your app and consider whether to call e.g. closesocket(). */
+    #ifdef _WIN64
+        #define ssize_t __int64
+    #else
+        #define ssize_t long
+    #endif
+#else
+    #include <glob.h>
+    #include <unistd.h>
+#endif
 
 /* A class for path manipulation */
 namespace apathy {
@@ -58,20 +76,27 @@ namespace apathy {
 #endif
     }
 
+#if defined(_WIN32)
+    static const char windows_separator = '\\';
+    static const char windows_drive_separator = ':';
+    static const char posix_separator = '/';
+    static const char separator = windows_separator;
+#else
+    static const char separator = '/';
+#endif
+
     class Path {
     public:
-        /* This is the separator used on this particular system */
-#ifdef __MSDOS__
-        #error "Platforms using backslashes not yet supported"
-#else
-        static const char separator = '/';
-#endif
         /* A class meant to contain path segments */
         struct Segment {
             /* The actual string segment */
             std::string segment;
 
             Segment(std::string s=""): segment(s) {}
+
+#if defined(_WIN32)
+            bool is_drive_letter() const { return segment.size() >= 2 && segment[1] == windows_drive_separator; }
+#endif
 
             friend std::istream& operator>>(std::istream& stream, Segment& s) {
                 return std::getline(stream, s.segment, separator);
@@ -84,8 +109,11 @@ namespace apathy {
 
         /* Default constructor
          *
-         * Points to current directory */
-        Path(const std::string& path=""): path(path) {}
+         * Points to current directory
+         * On Windows, this will also convert the separators to windows separators.
+         * If you want to retain your current separators, just use a string.
+         */
+        Path(const std::string& p="");
 
         /* Our generalized constructor.
          *
@@ -94,6 +122,7 @@ namespace apathy {
          * std::stringstream can support is implicitly supported as well
          *
          * @param p - path to construct */
+
         template <class T>
         Path(const T& p);
 
@@ -274,7 +303,7 @@ namespace apathy {
          * @param dest - new path
          * @param mkdirs - recursively make any needed directories? */
         static bool move(const Path& source, const Path& dest,
-            bool mkdirs=false);
+                         bool mkdirs=false);
 
         /* Remove a file
          *
@@ -297,10 +326,12 @@ namespace apathy {
          * @param p - path to list items for */
         static std::vector<Path> listdir(const Path& p);
 
+#if !defined(_WIN32)
         /* Returns all matching globs
          *
          * @param pattern - the glob pattern to match */
         static std::vector<Path> glob(const std::string& pattern);
+#endif
 
         /* Returns all the files contained in the directory and it's subdirectories
          *
@@ -316,12 +347,25 @@ namespace apathy {
         std::string path;
     };
 
+    inline Path::Path(const std::string &p):
+        path(p)
+    {
+#if defined(_WIN32)
+        std::replace(path.begin(), path.end(), posix_separator, windows_separator);
+        //FIXME: Deal with illegal paths on windows, like trying to pass posix paths: /home/meh/r
+#endif
+    }
+
     /* Constructor */
     template <class T>
     inline Path::Path(const T& p): path("") {
         std::stringstream ss;
         ss << p;
         path = ss.str();
+#if defined(_WIN32)
+        std::replace(path.begin(), path.end(), posix_separator, windows_separator);
+        //FIXME: Deal with illegal paths on windows, like trying to pass posix paths: /home/meh/r
+#endif
     }
 
     /**************************************************************************
@@ -339,8 +383,17 @@ namespace apathy {
 
     inline bool Path::equivalent(const Path& other) {
         /* Make copies of both paths, sanitize, and ensure they're equal */
+
+#if defined(_WIN32)
+        std::string thisPath = Path(path).absolute().sanitize().path;
+        std::string thatPath = Path(other).absolute().sanitize().path;
+        std::transform(thisPath.begin(), thisPath.end(), thisPath.begin(), ::tolower);
+        std::transform(thatPath.begin(), thatPath.end(), thatPath.begin(), ::tolower);
+        return  thisPath== thatPath;
+#else
         return Path(path).absolute().sanitize() ==
                Path(other).absolute().sanitize();
+#endif
     }
 
     inline std::string Path::filename() const {
@@ -405,11 +458,12 @@ namespace apathy {
             path = "..";
             return directory();
         }
-        
-        append("..").sanitize();
+
+        append(Path("..")).sanitize();
         if (path.size() == 0) {
             return *this;
         }
+
         return directory();
     }
 
@@ -433,11 +487,19 @@ namespace apathy {
         /* Now, we'll create a new set of segments */
         std::vector<Segment> pruned;
         for (size_t pos = 0; pos < segments.size(); ++pos) {
-            /* Skip over empty segments and '.' */
+            /* Skip over empty segments and '.'*/
             if (segments[pos].segment.size() == 0 ||
                 segments[pos].segment == ".") {
                 continue;
             }
+
+#if defined(_WIN32)
+            /* Skip over illegal paths */
+            if (pos != 0 && segments[pos].is_drive_letter())
+            {
+                continue;
+            }
+#endif
 
             /* If there is a '..', then pop off a parent directory. However, if
              * the path was relative to begin with, if the '..'s exceed the
@@ -452,17 +514,27 @@ namespace apathy {
                         pruned.push_back(segments[pos]);
                     }
                 } else if (pruned.size()) {
+#if defined(_WIN32)
+                    if (!pruned[pruned.size() - 1].is_drive_letter())
+                    {
+                        pruned.pop_back();
+                    }
+#else
                     pruned.pop_back();
+#endif
                 }
                 continue;
             }
 
             pruned.push_back(segments[pos]);
         }
-        
+
         bool was_directory = trailing_slash();
         if (!relative) {
-            path = std::string(1, separator) + Path::join(pruned).path;
+            path = Path::join(pruned).path;
+#if !defined(_WIN32)
+            path = std::string(1, separator) + path;
+#endif
             if (was_directory) {
                 return directory();
             }
@@ -505,6 +577,7 @@ namespace apathy {
         std::istream_iterator<Path::Segment> start(stream);
         std::istream_iterator<Path::Segment> end;
         std::vector<Path::Segment> results(start, end);
+
         if (trailing_slash()) {
             results.push_back(Path::Segment(""));
         }
@@ -515,11 +588,20 @@ namespace apathy {
      * Tests
      *************************************************************************/
     inline bool Path::is_absolute() const {
+#if defined(_WIN32)
+        return path.size() >= 2 && path[1] == windows_drive_separator;
+#else
         return path.size() && path[0] == separator;
+#endif
     }
 
     inline bool Path::trailing_slash() const {
+#if defined(_WIN32)
+        return path.size() && (path[path.length() - 1] == windows_separator
+                               || path[path.length() - 1] == posix_separator);
+#else
         return path.size() && path[path.length() - 1] == separator;
+#endif
     }
 
     inline bool Path::exists() const {
@@ -672,29 +754,32 @@ namespace apathy {
     }
 
     inline bool Path::rmdirs(const Path& p, bool ignore_errors) {
-        /* If this path isn't a file, then complain */
-        if (!p.is_directory()) {
-            return false;
-        }
+        bool success = true;
 
-        /* First, we list out all the members of the path, and anything
-         * that's a directory, we rmdirs(...) it. If it's a file, then we
-         * remove it */
-        std::vector<Path> subdirs(listdir(p));
-        std::vector<Path>::iterator it(subdirs.begin());
-        for (; it != subdirs.end(); ++it) {
-            if (it->is_directory() && !rmdirs(*it) && !ignore_errors) {
-                std::cout << "Failed rmdirs " << it->string() << std::endl;
-            } else if (it->is_file() &&
-                remove(it->path.c_str()) != 0 && !ignore_errors) {
-                std::cout << "Failed remove " << it->string() << std::endl;
+        std::vector<Path> contents = recursive_listdir(p);
+        contents.push_back(p);
+
+        //We sort the paths based on the lenght so as to make it easy for rmdir
+        std::sort(contents.begin(), contents.end(),
+                  [](const Path& a, const Path& b)
+                  {
+                      return Path(a).absolute().string().size() > Path(b).absolute().string().size();
+                  });
+
+        for (const Path &p : contents)
+        {
+            success = p.is_directory()
+                      ? (rmdir(p.path.c_str()) == 0)
+                      : (unlink(p.path.c_str()) == 0);
+
+            if (!success && !ignore_errors)
+            {
+                perror("rmdirs");
+                break;
             }
         }
 
-        /* Lastly, try to remove the directory itself */
-        bool result = (remove(p.path.c_str()) == 0);
-        errno = 0;
-        return result;
+        return success;
     }
 
     /* List all the paths in a directory
@@ -724,7 +809,7 @@ namespace apathy {
                 continue;
             }
 
-            cpy.relative(ent->d_name);
+            cpy.relative(Path(ent->d_name));
             results.push_back(cpy);
         }
 
