@@ -292,6 +292,9 @@ namespace apathy {
         /* Current working directory */
         static Path cwd();
 
+        /* Temporary directory */
+        static Path tmp();
+
         /* Create a file if one does not exist
          *
          * @param p - path to create
@@ -677,6 +680,39 @@ namespace apathy {
         /* Ensure this is a directory */
         p.directory();
         return p;
+    }
+
+    inline Path Path::tmp() {
+#if defined(unix) || defined(__unix) || defined(__unix__) || defined(__APPLE__) || defined(__MACH__) || defined(__linux__) || defined(__FreeBSD__)
+        char* env_value = nullptr;
+
+        if ((env_value = getenv("TMPDIR"))) // Single = intended
+        {
+            return Path(std::string(env_value));
+        }
+
+        return Path("/tmp"); // As per the Filesystem Hierarchy Standard.
+#elif defined(_WIN32) || defined(__CYGWIN__)
+        wchar_t buf[MAX_PATH + 1]; // See http://msdn.microsoft.com/en-us/library/windows/desktop/aa364992%28v=vs.85%29.aspx for the +1
+        DWORD count = GetTempPathW(MAX_PATH + 1, buf);
+        std::string result;
+
+        if (count == 0)
+        {
+            std::cerr << "Error fetching tmp dir: " << GetLastError() << std::endl;
+        }
+        else
+        {
+            //FIXME: All path should be using wstring instead of std::string
+            std::wstring utf16(buf, count);
+            result.reserve(count);
+            std::copy(buf, buf+count, std::back_inserter(result));
+        }
+
+        return result;
+#else
+#error "Unsupported platform"
+#endif
     }
 
     inline bool Path::touch(const Path& p, mode_t mode) {
